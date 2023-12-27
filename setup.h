@@ -4,22 +4,24 @@
 #include "bakkesmod/plugin/bakkesmodplugin.h"
 #include "bakkesmod/plugin/pluginwindow.h"
 #include "bakkesmod/plugin/PluginSettingsWindow.h"
+#include "ConfigManager.h"
 
 #include "version.h"
-constexpr auto plugin_version = stringify(VERSION_MAJOR) "." stringify(VERSION_MINOR) "." stringify(VERSION_PATCH) "." stringify(VERSION_BUILD);
+constexpr auto plugin_version = stringify(VERSION_MAJOR) "." stringify(VERSION_MINOR) "." stringify(VERSION_PATCH);
 
-class setup: public BakkesMod::Plugin::BakkesModPlugin
-	//,public SettingsWindowBase // Uncomment if you wanna render your own tab in the settings menu
-	//,public PluginWindowBase // Uncomment if you want to render your own plugin window
+class Setup : public BakkesMod::Plugin::BakkesModPlugin, public SettingsWindowBase
 {
+	ConfigManager *configManager;
 
-	//std::shared_ptr<bool> enabled;
-
-	//Boilerplate
 	void onLoad() override;
-	//void onUnload() override; // Uncomment and implement if you need a unload method
+	void onUnload() override;
+	void handleSettingConfig();
 
 public:
-	//void RenderSettings() override; // Uncomment if you wanna render your own tab in the settings menu
-	//void RenderWindow() override; // Uncomment if you want to render your own plugin window
+
+	PlayerConfig getSelectedConfig(std::string selectedPlayer) {
+		return this->configManager->getPlayerConfig(selectedPlayer);
+	}
+
+	void RenderSettings() override;
 };

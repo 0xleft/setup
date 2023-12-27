@@ -1,49 +1,140 @@
 #include "pch.h"
-#include "setup.h"
+#include "Setup.h"
+#include "ConfigManager.h"
 
+#define NEWEST_CONFIG_URL "https://raw.githubusercontent.com/0xleft/rl_configs/master/settings.json";
 
-BAKKESMOD_PLUGIN(setup, "write a plugin description here", plugin_version, PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(Setup, "Setup", plugin_version, PERMISSION_ALL)
 
 std::shared_ptr<CVarManagerWrapper> _globalCvarManager;
 
-void setup::onLoad()
+void Setup::onLoad()
 {
 	_globalCvarManager = cvarManager;
-	//LOG("Plugin loaded!");
-	// !! Enable debug logging by setting DEBUG_LOG = true in logging.h !!
-	//DEBUGLOG("setup debug mode enabled");
+	this->configManager = new ConfigManager();
+	
+	cvarManager->registerCvar("selected_player", "", "name of the player selected", false, false, 0, false, 0, true);
 
-	// LOG and DEBUGLOG use fmt format strings https://fmt.dev/latest/index.html
-	//DEBUGLOG("1 = {}, 2 = {}, pi = {}, false != {}", "one", 2, 3.14, true);
+	cvarManager->registerNotifier("setup_set_config", [this](std::vector<std::string> params) {
+		if (params.size() > 1) {
+			PlayerConfig config = this->configManager->getPlayerConfig(params[1]);
+			if (config.fov == "not found") {
+				LOG("Config not found for {}", params[1]);
+				return;
+			}
 
-	//cvarManager->registerNotifier("my_aweseome_notifier", [&](std::vector<std::string> args) {
-	//	LOG("Hello notifier!");
-	//}, "", 0);
+			cvarManager->getCvar("selected_player").setValue(config.name);
 
-	//auto cvar = cvarManager->registerCvar("template_cvar", "hello-cvar", "just a example of a cvar");
-	//auto cvar2 = cvarManager->registerCvar("template_cvar2", "0", "just a example of a cvar with more settings", true, true, -10, true, 10 );
+			handleSettingConfig();
+			return;
+		}
 
-	//cvar.addOnValueChanged([this](std::string cvarName, CVarWrapper newCvar) {
-	//	LOG("the cvar with name: {} changed", cvarName);
-	//	LOG("the new value is: {}", newCvar.getStringValue());
-	//});
+		handleSettingConfig();
+	}, "set config of player name", PERMISSION_ALL);
 
-	//cvar2.addOnValueChanged(std::bind(&setup::YourPluginMethod, this, _1, _2));
+	
+	cvarManager->registerNotifier("setup_update_configs", [this](std::vector<std::string> params) {
+		std::filesystem::path path = gameWrapper->GetDataFolder();
+		path = path / "setup_settings.json";
 
-	// enabled decleared in the header
-	//enabled = std::make_shared<bool>(false);
-	//cvarManager->registerCvar("TEMPLATE_Enabled", "0", "Enable the TEMPLATE plugin", true, true, 0, true, 1).bindTo(enabled);
+		CurlRequest req;
+		req.url = NEWEST_CONFIG_URL;
 
-	//cvarManager->registerNotifier("NOTIFIER", [this](std::vector<std::string> params){FUNCTION();}, "DESCRIPTION", PERMISSION_ALL);
-	//cvarManager->registerCvar("CVAR", "DEFAULTVALUE", "DESCRIPTION", true, true, MINVAL, true, MAXVAL);//.bindTo(CVARVARIABLE);
-	//gameWrapper->HookEvent("FUNCTIONNAME", std::bind(&TEMPLATE::FUNCTION, this));
-	//gameWrapper->HookEventWithCallerPost<ActorWrapper>("FUNCTIONNAME", std::bind(&setup::FUNCTION, this, _1, _2, _3));
-	//gameWrapper->RegisterDrawable(bind(&TEMPLATE::Render, this, std::placeholders::_1));
+		HttpWrapper::SendCurlRequest(req, path.wstring(), [this](int code, std::wstring out_path) {
+			LOG("Downloaded with code: {}", code);
+		});
 
+	}, "update settings.json", PERMISSION_ALL);
 
-	//gameWrapper->HookEvent("Function TAGame.Ball_TA.Explode", [this](std::string eventName) {
-	//	LOG("Your hook got called and the ball went POOF");
-	//});
-	// You could also use std::bind here
-	//gameWrapper->HookEvent("Function TAGame.Ball_TA.Explode", std::bind(&setup::YourPluginMethod, this);
+	cvarManager->registerNotifier("setup_reload_configs", [this](std::vector<std::string> params) {
+		this->configManager->load(gameWrapper->GetDataFolder());
+		LOG("Loaded {} configs", this->configManager->getPlayerConfigs().size());
+	}, "reload configs", PERMISSION_ALL);
+
+	this->configManager->load(gameWrapper->GetDataFolder());
+
+	gameWrapper->HookEvent("Function TAGame.Camera_TA.ApplyCa meraModifiers", [this](std::string eventname) {
+		cvarManager->executeCommand("setup_set_config", false);
+	});
+}
+
+void Setup::onUnload() {
+	// remove setup_settings.json from data folder
+}
+
+void Setup::handleSettingConfig() {
+	PlayerConfig playerConfig = this->getSelectedConfig(cvarManager->getCvar("selected_player").getStringValue());
+	if (playerConfig.fov == "not found") {
+		// LOG("Player not found");
+		return;
+	}
+
+	ProfileCameraSettings settings;
+	try {
+		settings.FOV = std::stoi(playerConfig.fov);
+		settings.Distance = std::stoi(playerConfig.distance);
+		settings.Height = std::stoi(playerConfig.height);
+		settings.Pitch = std::stof(playerConfig.angle);
+		settings.Stiffness = std::stof(playerConfig.stiffness);
+		settings.SwivelSpeed = std::stof(playerConfig.swivel);
+		settings.TransitionSpeed = std::stof(playerConfig.transition);
+	}
+	catch (std::exception e) {
+		LOG("Exception: {}", e.what());
+	}
+	
+	if (!gameWrapper->GetCamera()) {
+		LOG("camera is null");
+		return;
+	};
+
+	gameWrapper->GetCamera().SetCameraSettings(settings);
+}
+
+void Setup::RenderSettings() {
+	if (ImGui::Button("Update configs")) {
+		gameWrapper->Execute([this](GameWrapper* gw) {
+			cvarManager->executeCommand("setup_update_configs");
+		});
+	}
+
+	if (ImGui::Button("Reset settings")) {
+		gameWrapper->Execute([this](GameWrapper* gw) {
+			cvarManager->getCvar("selected_player").setValue("");
+		});
+	}
+
+	if (ImGui::Button("Reload configs")) {
+		gameWrapper->Execute([this](GameWrapper* gw) {
+			cvarManager->executeCommand("setup_reload_configs");
+		});
+	}
+
+	ImGui::Text(std::format("Currently selected: {}", cvarManager->getCvar("selected_player").getStringValue()).c_str());
+
+	std::vector<PlayerConfig> displayedConfigs;
+	static char buf[128];
+	ImGui::InputText("Player name", buf, sizeof(buf), ImGuiInputTextFlags_EnterReturnsTrue);
+	if (buf == "") {
+		displayedConfigs = this->configManager->getPlayerConfigs();
+	} else {
+		// hanlding where we are actualy searching
+		for (PlayerConfig config : this->configManager->getPlayerConfigs()) {
+			if (config.name.rfind(buf, 0) == 0) {
+				displayedConfigs.push_back(config);
+			}
+		}
+	}
+
+	ImGui::BeginChild("Select player");
+	for (PlayerConfig item : displayedConfigs) {
+		if (ImGui::Selectable(item.name.c_str())) {
+			cvarManager->getCvar("selected_player").setValue(item.name);
+
+			gameWrapper->Execute([this](GameWrapper* gw) {
+				cvarManager->executeCommand("setup_set_config");
+			});
+		}
+	}
+	ImGui::EndChild();
 }
