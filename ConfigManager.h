@@ -16,6 +16,7 @@ struct PlayerConfig {
 	std::string transition;
 	std::string ballCam;
 	std::string lastUpdated;
+	bool isFound = true;
 };
 
 class ConfigManager
@@ -77,7 +78,7 @@ public:
 		}
 
 		PlayerConfig n;
-		n.fov = "not found";
+		n.isFound = false;
 		return n;
 	}
 };

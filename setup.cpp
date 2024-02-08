@@ -68,7 +68,7 @@ void Setup::onUnload() {
 
 void Setup::handleSettingConfig() {
 	PlayerConfig playerConfig = this->getSelectedConfig(cvarManager->getCvar("selected_player").getStringValue());
-	if (playerConfig.fov == "not found") {
+	if (!playerConfig.isFound) {
 		// LOG("Player not found");
 		return;
 	}
